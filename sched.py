@@ -1,97 +1,84 @@
 # -*- coding: utf-8 -*-
+import os
 import click
-from pytz import utc
-
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
-
-
-"""
-triggers: 描述一个任务何时被触发，有按日期、按时间间隔、按cronjob描述式三种触发方式
-"""
+import time
+import sys
+from apscheduler.events import EVENT_SCHEDULER_STARTED,EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
+from datetime import datetime
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
-"""
-job stores: 
-任务持久化仓库,默认保存任务在内存中,也可将任务保存都各种数据库中,
-任务中的数据序列化后保存到持久化数据库,从数据库加载后又反序列化.
-"""
-jobstores = {
-    'default': SQLAlchemyJobStore(url='sqlite:///jobs.sqlite')
-}
+try:
+    import asyncio
+except ImportError:
+    import trollius as asyncio
 
-"""
-executors:
-执行任务模块,当任务完成时executors通知schedulers,schedulers收到后会发出一个适当的事件.
-"""
-executors = {
-    'default': ThreadPoolExecutor(20),
-    'processpool': ProcessPoolExecutor(5)
-}
+scheduler = AsyncIOScheduler()
 
-job_defaults = {
-    'coalesce': False,
-    'max_instances': 3
-}
+@click.command()
+@click.option('--script', 
+                prompt='script path', 
+                help='input script path, please!')
+@click.option('--trigger', 
+                nargs=2, 
+                # type=click.Choice(['date','interval','cron']), 
+                prompt='mode of operation', 
+                help='input mode of operation, please!')
+@click.argument('email', nargs=-1)
+def run(script, trigger, email):
 
-"""
-schedulers:
-任务调度器,控制器角色,通过它配置job stores和executors,添加、修改和删除任务.
-"""
-scheduler = BackgroundScheduler(
-    jobstores=jobstores, 
-    executors=executors, 
-    job_defaults=job_defaults, 
-    timezone=utc
-)
+    click.secho('%s :::: %s' % (script, trigger), fg='cyan', bold=True)
+
+    try:
+        with open(script) as f:
+            sf = f.readlines
+
+        if trigger:
+            raise TypeError()
+    except (IOError):
+        click.secho('file not exist' , fg='red', bold=True)
+        scheduler.shutdown()
+        sys.exit(0)
+    except (TypeError):
+        click.secho('1111111111111' , fg='red', bold=True)
+        scheduler.shutdown()
+        sys.exit(0)
+
+    
+    scheduler.add_listener(job_listener, EVENT_SCHEDULER_STARTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+    
+    scheduler.add_job(db_job, 'interval', id='2231', seconds=3)
+    scheduler.start()
+
+    # Execution will block here until Ctrl+C (Ctrl+Break on Windows) is pressed.
+    try:
+        asyncio.get_event_loop().run_forever()
+    except (KeyboardInterrupt, SystemExit):
+        scheduler.shutdown()
 
 
-@click.group()
-def cli():
+def job_listener(event):
+    if EVENT_JOB_ERROR == event.code:
+        click.secho('The %s error: %s' % (event.job_id, event.exception), fg='red', bold=True)
+    elif EVENT_SCHEDULER_STARTED == event.code:
+        click.secho('The job scheduler started!')
+    elif EVENT_JOB_EXECUTED == event.code:
+        click.secho('The %s executed successfully!' % event.job_id)
+    else:
+        pass
+
+
+def db_job():
+    time.sleep(2)
+    click.secho('The task is being carried out', fg='cyan', bold=True)
+
+
+def mail_job():
     pass
 
 
-@cli.command()
-def check_task():
-    tasks = ['A','B','C']
-    for task in tasks:
-        click.echo(task)
-
-
-@cli.command()
-@click.option('--name', help='input task name , please.')
-@click.option('--script', help='input script path , please.')
-def add_task(name, script):
-    if name and script:
-        click.echo('%s, path:%s' % (name, script))
-        
-    else:
-        click.echo('please, input task name & script path')
-    
-
-
-@cli.command()
-@click.option('--name', help='input task name , please.')
-@click.option('--script', help='input script path , please.')
-def alter_task(name, script):
-    click.echo('%s, path:%s' % (name, script))
-
-
-@cli.command()
-@click.option('--name', help='input task name , please.')
-def del_task(name):
-    click.echo(name)
-
-
-@cli.command()
-@click.option('--name', help='input task name , please.')
-def run_task(name):
-    job = scheduler.add_job(name, 'interval', minutes=2)
-    scheduler.start(paused=True)
-    click.echo(job)
-
-
-
 if __name__ == '__main__':
-    cli()
+    run()
+
+
+#python sched.py --script D:\Workspace\VSCodeWorkspace\WoodFrog\test.py --trigger df df
